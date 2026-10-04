@@ -58,17 +58,17 @@ def passes_hard_rules(stocks):
     ]
 
 
-def download_volume(symbols):
+def download_bars(symbols, period):
     frames = []
     for start in range(0, len(symbols), CHUNK):
         chunk = symbols[start:start + CHUNK]
         for attempt in range(3):
-            volume = yf.download(chunk, period="3mo", interval="1d", progress=False, threads=True)["Volume"]
-            missing = [s for s in chunk if s not in volume or volume[s].isna().all()]
+            bars = yf.download(chunk, period=period, interval="1d", progress=False, threads=True, auto_adjust=True)
+            missing = [s for s in chunk if s not in bars["Close"] or bars["Close"][s].isna().all()]
             if len(missing) < len(chunk) / 2 or attempt == 2:
                 break
             time.sleep(20 * (attempt + 1))
-        frames.append(volume)
+        frames.append(bars)
         time.sleep(2)
     return pd.concat(frames, axis=1)
 
@@ -79,7 +79,7 @@ def average_volume(symbols, today):
     cached = pd.read_parquet(path)["avg_volume"] if path.exists() else pd.Series(dtype=float)
     todo = [s for s in symbols if s not in cached.index]
     if todo:
-        history = download_volume(todo)
+        history = download_bars(todo, "3mo")["Volume"]
         history = history[history.index.date < today]
         fresh = history.tail(LOOKBACK_DAYS).mean().dropna()
         cached = pd.concat([cached, fresh])
