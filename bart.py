@@ -64,36 +64,40 @@ def find_barts(close, volume):
     return events
 
 
-def trade_return(side, close, entry, target, stop):
+def trade_return(side, close, entry, target, stop, lag):
     sign = 1 if side == "long" else -1
-    for day in range(entry + 1, min(entry + MAX_HOLD_DAYS + 1, len(close))):
-        move = sign * (close[day] - close[entry])
-        if move >= sign * (target - close[entry]) or move <= sign * (stop - close[entry]):
+    last = min(entry + MAX_HOLD_DAYS, len(close) - 1)
+    exit_day = last
+    for day in range(entry + 1, last):
+        if sign * (close[day] - target) >= 0 or sign * (close[day] - stop) <= 0:
+            exit_day = min(day + lag, last)
             break
-    else:
-        day = min(entry + MAX_HOLD_DAYS, len(close) - 1)
-    return sign * (close[day] / close[entry] - 1), day - entry
+    return sign * (close[exit_day] / close[entry] - 1), exit_day - entry
 
 
-def backtest(bars):
+def tradable(close, day):
+    return day < len(close) and close[day] > MIN_PRICE and close[day - 1] > MIN_PRICE
+
+
+def backtest(bars, lag):
     trades, baseline = [], []
     for symbol, g in bars.groupby("symbol"):
         close, volume, dates = g["close"].to_numpy(), g["volume"].to_numpy(), g["date"].to_numpy()
         for side, spikes in find_spikes(close, volume).items():
             sign = 1 if side == "long" else -1
-            for entry in spikes + 1:
-                if entry + MAX_HOLD_DAYS < len(close) and close[entry] > MIN_PRICE and close[entry - 1] > MIN_PRICE:
+            for entry in spikes + lag:
+                if entry + MAX_HOLD_DAYS < len(close) and tradable(close, entry):
                     baseline.append(dict(side=side, ret=sign * (close[entry + MAX_HOLD_DAYS] / close[entry] - 1)))
         for e in find_barts(close, volume):
-            if e["entry"] is None or close[e["entry"]] <= MIN_PRICE or close[e["entry"] - 1] <= MIN_PRICE:
+            if e["entry"] is None or not tradable(close, e["entry"] + lag):
                 continue
-            ret, held = trade_return(e["side"], close, e["entry"], e["target"], e["stop"])
-            trades.append(dict(symbol=symbol, date=pd.Timestamp(dates[e["entry"]]).date(), side=e["side"], ret=ret, held=held))
+            ret, held = trade_return(e["side"], close, e["entry"] + lag, e["target"], e["stop"], lag)
+            trades.append(dict(symbol=symbol, date=pd.Timestamp(dates[e["entry"] + lag]).date(), side=e["side"], ret=ret, held=held))
     return pd.DataFrame(trades), pd.DataFrame(baseline)
 
 
-def summarize(trades, baseline):
-    print(f"Bart backtest, {HISTORY} of daily bars, enter at breakout close, exit at target/stop close or {MAX_HOLD_DAYS} days\n")
+def summarize(trades, baseline, title):
+    print(f"\n{title}\n")
     print(f"{'SIDE':<7}{'GROUP':<10}{'TRADES':>7}{'WIN%':>7}{'MEAN':>8}{'MEDIAN':>8}{'AVG DAYS':>9}")
     for side in ("short", "long"):
         t = trades[trades.side == side]
@@ -127,6 +131,7 @@ def print_scan(signals, setups, now):
     print(f"Bart scan, {now:%Y-%m-%d %H:%M} ET")
     if now.hour < 16 and now.weekday() < 5:
         print("Market still open. Today's bar is partial, so a breakout can still undo itself by the close.")
+    print("End-of-Day game: orders before 4pm ET fill at today's close, later ones at the next trading day's close.")
     print("\nSIGNALS (plateau broke today, enter by hand):")
     if signals.empty:
         print("  none")
@@ -144,7 +149,9 @@ def main():
     universe = passes_hard_rules(listed_stocks()).set_index("symbol")
     bars = load_bars(list(universe.index), now.date())
     if sys.argv[1:] == ["backtest"]:
-        summarize(*backtest(bars))
+        print(f"Bart backtest, {HISTORY} of daily bars, SMG End-of-Day fills, exit at target/stop or {MAX_HOLD_DAYS} days")
+        summarize(*backtest(bars, 0), "Lag 0: scan just before 4pm ET, order fills at that day's close (assumes the late price holds)")
+        summarize(*backtest(bars, 1), "Lag 1: scan after the close, order fills at the next day's close")
     else:
         print_scan(*scan(bars, universe), now)
 
