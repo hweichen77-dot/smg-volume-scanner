@@ -7,6 +7,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
 
@@ -17,6 +18,7 @@ MIN_VOLUME = 100_000
 RVOL_THRESHOLD = 3.0
 LOOKBACK_DAYS = 20
 TOP_N = 40
+EWMA_LAMBDA = 0.94
 CHUNK = 200
 NOT_COMMON = ("%", "NOTES", "PREFERRED", "DEBENTURE", "WARRANTS", " UNITS", " RIGHTS", " FUND", "INCOME TRUST", "MUNICIPAL", "DEPOSITARY SHARES EACH")
 CACHE = Path(__file__).with_name("data")
@@ -73,23 +75,30 @@ def download_bars(symbols, period):
     return pd.concat(frames, axis=1)
 
 
-def average_volume(symbols, today):
+def volume_and_volatility(symbols, today):
     CACHE.mkdir(exist_ok=True)
-    path = CACHE / f"avg_volume_{today}.parquet"
-    cached = pd.read_parquet(path)["avg_volume"] if path.exists() else pd.Series(dtype=float)
+    path = CACHE / f"history_stats_{today}.parquet"
+    cached = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["avg_volume", "ewma_var"])
     todo = [s for s in symbols if s not in cached.index]
     if todo:
-        history = download_bars(todo, "3mo")["Volume"]
+        history = download_bars(todo, "6mo")
         history = history[history.index.date < today]
-        fresh = history.tail(LOOKBACK_DAYS).mean().dropna()
+        log_returns = np.log(history["Close"]).diff()
+        fresh = pd.DataFrame({
+            "avg_volume": history["Volume"].tail(LOOKBACK_DAYS).mean(),
+            "ewma_var": log_returns.pow(2).ewm(alpha=1 - EWMA_LAMBDA, adjust=False).mean().iloc[-1],
+        }).dropna()
         cached = pd.concat([cached, fresh])
-        cached.to_frame("avg_volume").to_parquet(path)
-    return cached.reindex(symbols)
+        cached.to_parquet(path)
+    return cached.astype(float).reindex(symbols)
 
 
 def scan(today):
     stocks = passes_hard_rules(listed_stocks()).set_index("symbol")
-    stocks["avg_volume"] = average_volume(list(stocks.index), today)
+    stats = volume_and_volatility(list(stocks.index), today)
+    stocks["avg_volume"] = stats["avg_volume"]
+    today_return = np.log(stocks["price"] / stocks["prev_close"])
+    stocks["vol"] = np.sqrt(EWMA_LAMBDA * stats["ewma_var"] + (1 - EWMA_LAMBDA) * today_return**2)
     unpriced = stocks["avg_volume"].isna().sum()
     if unpriced:
         print(f"No volume history for {unpriced} stocks, skipped. Rerun to retry them.", file=sys.stderr)
@@ -98,7 +107,9 @@ def scan(today):
     return stocks[stocks["rvol"] >= RVOL_THRESHOLD].sort_values("rvol", ascending=False)
 
 
-def print_report(hits, now):
+def print_report(hits, now, multipliers):
+    from price_range import TARGET, ranges
+
     print(f"Unusual volume scan, {now:%Y-%m-%d %H:%M} ET")
     print(f"Rules: price > ${MIN_PRICE:.0f}, market cap > ${MIN_MARKET_CAP / 1e6:.0f}M, volume >= {RVOL_THRESHOLD:.0f}x {LOOKBACK_DAYS}-day average")
     if now.hour < 16:
@@ -107,13 +118,19 @@ def print_report(hits, now):
     if hits.empty:
         print("Nothing passed.")
         return
-    print(f"{'SYMBOL':<7}{'RVOL':>7}{'PRICE':>10}{'CHG%':>8}{'VOLUME':>13}{'AVG VOL':>13}{'MCAP':>10}  NAME")
+    print(f"{'SYMBOL':<7}{'RVOL':>7}{'PRICE':>10}{'CHG%':>8}{'AVG VOL':>13}{'MCAP':>10}{'NEXT CLOSE':>21}{'5 DAYS OUT':>21}  NAME")
     for symbol, s in hits.head(TOP_N).iterrows():
+        band = ranges(s.price, s.vol, multipliers)
         print(
             f"{symbol:<7}{s.rvol:>6.1f}x{s.price:>10.2f}{s.change_pct:>+8.1f}"
-            f"{s.volume:>13,.0f}{s.avg_volume:>13,.0f}{s.market_cap / 1e6:>9,.0f}M  {s['name'][:40]}"
+            f"{s.avg_volume:>13,.0f}{s.market_cap / 1e6:>9,.0f}M"
+            f"{band[1][0]:>11.2f}-{band[1][1]:<9.2f}{band[5][0]:>11.2f}-{band[5][1]:<9.2f}"
+            f"{'*' if abs(s.change_pct) > 50 else ' '} {s['name'][:30]}"
         )
     print(f"\n{len(hits)} stocks passed, showing top {min(TOP_N, len(hits))}.")
+    print(f"Ranges are where the close landed {TARGET:.0%} of the time in backtests of past flags. They say how far a stock may move, not which way.")
+    if (hits.head(TOP_N)["change_pct"].abs() > 50).any():
+        print("* Moved more than 50% today. If that came from a split or spin-off, the data source didn't adjust for it and the range is wrong.")
 
 
 def main():
@@ -121,7 +138,8 @@ def main():
     if len(sys.argv) > 1:
         global RVOL_THRESHOLD
         RVOL_THRESHOLD = float(sys.argv[1])
-    print_report(scan(now.date()), now)
+    from price_range import calibrate
+    print_report(scan(now.date()), now, calibrate(now.date()))
 
 
 if __name__ == "__main__":
