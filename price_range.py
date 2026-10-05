@@ -1,4 +1,5 @@
 import json
+import sys
 from datetime import date
 
 import numpy as np
@@ -132,5 +133,32 @@ def backtest(today):
         print()
 
 
+def holdout(today, days=200):
+    bars = load_history(today)
+    trading_days = np.sort(bars["date"].unique())
+    test_start = pd.Timestamp(trading_days[-days])
+    events = flag_events(bars)
+    events["bucket"] = events["vol"].map(bucket)
+    print(f"Holdout test on the last {days} trading days, {test_start:%Y-%m-%d} to {pd.Timestamp(trading_days[-1]):%Y-%m-%d}")
+    print("Frozen uses only flags resolved before the window and never updates. Live keeps recalibrating like the scanner does.\n")
+    for h in HORIZONS:
+        test = events[events["flagged"] >= test_start].dropna(subset=[f"move{h}"]).copy()
+        train = events[events[f"resolved{h}"] < test_start].dropna(subset=[f"move{h}"]).copy()
+        for part in (train, test):
+            part["score"] = part[f"move{h}"].abs() / (part["vol"] * np.sqrt(h))
+        frozen = train.groupby("bucket")["score"].quantile(TARGET)
+        inside = test["score"] <= test["bucket"].map(frozen)
+        above = test[f"move{h}"] > test["bucket"].map(frozen) * test["vol"] * np.sqrt(h)
+        live, _ = walk_forward_all(events, h)
+        live = live[live["flagged"] >= test_start]
+        daily = inside.groupby(test["flagged"]).mean()
+        label = "next close" if h == 1 else f"close {h} days out"
+        print(f"{label}: trained on {len(train):,} flags, tested on {len(test):,}")
+        print(f"  frozen inside {inside.mean():.1%} (above {above.mean():.1%}, below {(~inside & ~above).mean():.1%})")
+        print(f"  live inside {(live['score'] <= live['multiplier']).mean():.1%}")
+        print(f"  frozen days under 70%: {(daily < 0.7).sum()}/{len(daily)}, worst {daily.min():.0%} on {daily.idxmin():%Y-%m-%d}")
+        print(f"  went up, for reference: {(test[f'move{h}'] > 0).mean():.1%}\n")
+
+
 if __name__ == "__main__":
-    backtest(date.today())
+    holdout(date.today()) if sys.argv[1:] == ["holdout"] else backtest(date.today())

@@ -29,7 +29,19 @@ A range is the flag-day close plus or minus a multiple of the stock's recent vol
 
 The ranges don't predict direction. Up-or-down calls on flagged stocks came out at 49% to 50% in the same backtest. If a stock moved more than 50% on the day, its range gets a `*`. Splits and spin-offs show up in the free data as fake crashes, which make the range far too wide.
 
+### Holdout test
+
+The last 200 trading days (Dec 16, 2025 to Oct 2, 2026) were held out as unseen data. "Frozen" calibrates only on flags that resolved before the window and never updates. "Live" keeps recalibrating the way the scanner does.
+
+| range | test flags | frozen | live |
+|---|---|---|---|
+| next close | 10,685 | 85.2% | 86.4% |
+| 5 days out | 10,526 | 83.8% | 85.9% |
+
+Frozen ranges slipped under target from January to May 2026, when markets got rougher than in the calibration data, and the 5-day range ended at 83.8%. Recalibrating keeps both above 85%, so leave the weekly refresh on. On a few days many flagged stocks moved together on market news. The next-close range fell under 70% on 7 of 199 days, with the worst at 64% on Jul 10, 2026. Direction stayed a coin flip, with 50.9% up after 1 day and 48.8% after 5.
+
 ```
-.venv/bin/python price_range.py        # rerun the range backtest
-.venv/bin/python test_price_range.py   # checks calibration on made-up data
+.venv/bin/python price_range.py           # rerun the range backtest
+.venv/bin/python price_range.py holdout   # 200-day holdout test
+.venv/bin/python test_price_range.py      # checks calibration on made-up data
 ```
