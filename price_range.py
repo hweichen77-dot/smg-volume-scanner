@@ -7,14 +7,14 @@ import pandas as pd
 
 from volume_scanner import CACHE, MIN_PRICE, MIN_VOLUME, RVOL_THRESHOLD, download_bars, listed_stocks, passes_hard_rules
 
-TARGET = 0.85
-ACI_TARGET = 0.86
+TARGET = 0.90
+ACI_TARGET = 0.91
 ACI_GAMMA = 0.005
 WINDOW = 3000
 WARMUP = 500
 HORIZONS = (1, 5)
 EWMA_LAMBDA = 0.94
-HISTORY = "2y"
+HISTORY = "10y"
 CALIBRATION = CACHE / "range_calibration.json"
 VOL_BUCKETS = (0.03, 0.06)
 
@@ -37,9 +37,11 @@ def load_history(today):
         bars.index.names = ["date", "symbol"]
         bars.columns = [c.lower() for c in bars.columns]
         bars.reset_index().to_parquet(path)
-    return pd.read_parquet(path)
+    bars = pd.read_parquet(path)
+    return bars[bars["date"] < pd.Timestamp(today)]
 
 
+@np.errstate(divide="ignore", invalid="ignore")
 def flag_events(bars):
     rows = []
     for symbol, g in bars.groupby("symbol"):
@@ -97,11 +99,11 @@ def walk_forward(events, h):
 def calibrate(today):
     if CALIBRATION.exists():
         saved = json.loads(CALIBRATION.read_text())
-        if (today - date.fromisoformat(saved["asof"])).days < 7:
+        if saved.get("target") == ACI_TARGET and (today - date.fromisoformat(saved["asof"])).days < 7:
             return {int(h): {int(b): m for b, m in per.items()} for h, per in saved["multipliers"].items()}
     events = flag_events(load_history(today))
     multipliers = {h: walk_forward_all(events, h)[1] for h in HORIZONS}
-    CALIBRATION.write_text(json.dumps({"asof": today.isoformat(), "multipliers": {h: {b: float(m) for b, m in per.items()} for h, per in multipliers.items()}}))
+    CALIBRATION.write_text(json.dumps({"asof": today.isoformat(), "target": ACI_TARGET, "multipliers": {h: {b: float(m) for b, m in per.items()} for h, per in multipliers.items()}}))
     return multipliers
 
 

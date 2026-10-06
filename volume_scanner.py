@@ -78,7 +78,7 @@ def download_bars(symbols, period):
 def volume_and_volatility(symbols, today):
     CACHE.mkdir(exist_ok=True)
     path = CACHE / f"history_stats_{today}.parquet"
-    cached = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["avg_volume", "ewma_var"])
+    cached = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["avg_volume", "ewma_var", "max_jump"])
     todo = [s for s in symbols if s not in cached.index]
     if todo:
         history = download_bars(todo, "6mo")
@@ -87,6 +87,7 @@ def volume_and_volatility(symbols, today):
         fresh = pd.DataFrame({
             "avg_volume": history["Volume"].tail(LOOKBACK_DAYS).mean(),
             "ewma_var": log_returns.pow(2).ewm(alpha=1 - EWMA_LAMBDA, adjust=False).mean().iloc[-1],
+            "max_jump": log_returns.abs().max(),
         }).dropna()
         cached = pd.concat([cached, fresh])
         cached.to_parquet(path)
@@ -104,6 +105,7 @@ def scan(today):
         print(f"No volume history for {unpriced} stocks, skipped. Rerun to retry them.", file=sys.stderr)
     stocks = stocks[stocks["avg_volume"] > 0]
     stocks["rvol"] = stocks["volume"] / stocks["avg_volume"]
+    stocks["suspect"] = (stocks["change_pct"].abs() > 50) | (stats["max_jump"] > np.log(1.5))
     return stocks[stocks["rvol"] >= RVOL_THRESHOLD].sort_values("rvol", ascending=False)
 
 
@@ -125,12 +127,12 @@ def print_report(hits, now, multipliers):
             f"{symbol:<7}{s.rvol:>6.1f}x{s.price:>10.2f}{s.change_pct:>+8.1f}"
             f"{s.avg_volume:>13,.0f}{s.market_cap / 1e6:>9,.0f}M"
             f"{band[1][0]:>11.2f}-{band[1][1]:<9.2f}{band[5][0]:>11.2f}-{band[5][1]:<9.2f}"
-            f"{'*' if abs(s.change_pct) > 50 else ' '} {s['name'][:30]}"
+            f"{'*' if s.suspect else ' '} {s['name'][:30]}"
         )
     print(f"\n{len(hits)} stocks passed, showing top {min(TOP_N, len(hits))}.")
     print(f"Ranges are where the close landed {TARGET:.0%} of the time in backtests of past flags. They say how far a stock may move, not which way.")
-    if (hits.head(TOP_N)["change_pct"].abs() > 50).any():
-        print("* Moved more than 50% today. If that came from a split or spin-off, the data source didn't adjust for it and the range is wrong.")
+    if hits.head(TOP_N)["suspect"].any():
+        print("* Moved more than 50% in one day within the last 6 months. If that was a split or spin-off, the data source didn't adjust for it and the range is far too wide.")
 
 
 def main():
