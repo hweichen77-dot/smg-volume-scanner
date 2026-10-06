@@ -7,8 +7,9 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from price_range import load_history
-from volume_scanner import CACHE, MIN_PRICE, MIN_VOLUME
+from price_range import EWMA_LAMBDA, calibrate, load_history, ranges
+from research import full_report, heading
+from volume_scanner import CACHE, MIN_PRICE, MIN_VOLUME, RVOL_THRESHOLD
 
 HOLD_DAYS = 5
 FEATURES = ["r1", "r5", "r20", "r60", "vol20", "rvol", "clv", "hi52"]
@@ -146,11 +147,18 @@ def report(symbol, now, model):
     f = features(bars).iloc[[-1]]
     last = bars.iloc[-1]
     buy = float(probability(f, model)[0])
-    print(f"{symbol}  close {last['close']:.2f} on {bars.index[-1]:%Y-%m-%d}")
+    full_report(symbol, bars)
+    heading("Model odds")
     print(f"  buy  {buy:.1%}  chance it closes higher {HOLD_DAYS} trading days after your fill")
     print(f"  sell {1 - buy:.1%}  chance it closes lower")
     if last["close"] <= MIN_PRICE or last["volume"] < MIN_VOLUME:
         print(f"  Outside what the model was trained on (price over ${MIN_PRICE:.0f}, volume over {MIN_VOLUME:,}), so treat this as a guess.")
+    rvol = last["volume"] / bars["volume"].iloc[-21:-1].mean()
+    if rvol >= RVOL_THRESHOLD:
+        r = np.log(bars["close"]).diff().dropna()
+        vol = float(np.sqrt((r**2).ewm(alpha=1 - EWMA_LAMBDA, adjust=False).mean().iat[-1]))
+        band = ranges(last["close"], vol, calibrate(now.date()))
+        print(f"  90% range, next close {band[1][0]:.2f} - {band[1][1]:.2f}, 5 days out {band[5][0]:.2f} - {band[5][1]:.2f} (volume-flagged at {rvol:.1f}x)")
     print()
 
 
@@ -163,7 +171,7 @@ def main():
         sys.exit("usage: analyze.py SYMBOL [SYMBOL ...] | analyze.py backtest")
     model = load_model(now.date())
     fill = "today's close" if now.hour < 16 and now.weekday() < 5 else "the next trading day's close"
-    print(f"Direction odds, {now:%Y-%m-%d %H:%M} ET. Assumes an order placed now fills at {fill} and is held {HOLD_DAYS} trading days.\n")
+    print(f"Stock report, {now:%Y-%m-%d %H:%M} ET. Model odds assume an order placed now fills at {fill} and is held {HOLD_DAYS} trading days.\n")
     for symbol in symbols:
         report(symbol, now, model)
     print("Calibrated on unseen data, so a 52% means about 52 in 100 went up. Almost every stock lands between 47% and 54%.")

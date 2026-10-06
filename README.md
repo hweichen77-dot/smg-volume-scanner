@@ -2,7 +2,7 @@
 
 Lists stocks trading at least 3x their 20-day average volume. It only keeps names the Stock Market Game (SMG) lets you buy. Price and yesterday's close both have to be over $3 and market cap over $25M. Notes, preferreds, warrants, units and closed-end funds get dropped.
 
-Each flagged stock also gets a 90% price range for the next close and the close 5 trading days out. A separate tool, `analyze.py`, gives any stock calibrated odds of closing higher or lower a week after you buy.
+Each flagged stock also gets a 90% price range for the next close and the close 5 trading days out. A separate tool, `analyze.py`, prints a full research report on any stock, with valuation, financials, analysts, peers, holders, filings and news, and ends with calibrated odds of it closing higher or lower a week after you buy.
 
 The stock list, price, market cap and volume come from Nasdaq's public screener. The 20-day averages come from yfinance, cover the 20 sessions before the one being scanned, and get cached in `data/` for the day. The first run takes about two minutes and later runs that day take a few seconds.
 
@@ -27,7 +27,15 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 .venv/bin/python volume_scanner.py      # 3x threshold
 .venv/bin/python volume_scanner.py 5    # 5x threshold
-.venv/bin/python analyze.py APT AAPL     # buy and sell odds for any stock
+.venv/bin/python analyze.py APT AAPL     # full report on one or more stocks
+```
+
+For shorter commands that work from any folder, add these to `~/.zshrc` and open a new terminal. Then `run3x`, `run5x` and `analyze APT` do the same as the lines above.
+
+```
+run3x() { (cd ~/smg-volume-scanner && .venv/bin/python volume_scanner.py 3) }
+run5x() { (cd ~/smg-volume-scanner && .venv/bin/python volume_scanner.py 5) }
+analyze() { (cd ~/smg-volume-scanner && .venv/bin/python analyze.py "$@") }
 ```
 
 During market hours Nasdaq's screener still shows the previous full session, and the report header names the session it covers. An order you place that day fills at that day's close, one session after the flag, so the "next close" range is the range for your fill.
@@ -73,6 +81,25 @@ Frozen ranges finished a hair under 90% and live ones stayed above it, so leave 
 .venv/bin/python price_range.py holdout   # 200-day holdout test
 .venv/bin/python test_price_range.py      # checks calibration on made-up data
 ```
+
+## Stock report
+
+`analyze.py APT` prints one report per symbol, built from Yahoo Finance data, Yahoo's equity screener and Google News. It takes about 5 seconds a stock. The sections are below.
+
+- Company description, sector, industry and website.
+- Price and trading, covering market cap, enterprise value, the 52-week range, distance from the 50- and 200-day averages, returns from 1 week to 1 year against the S&P 500, beta, volatility, RVOL and float.
+- Valuation, with trailing and forward P/E, PEG, price to sales and book, EV/EBITDA, EV/revenue, free cash flow yield and dividend yield.
+- Profitability and balance sheet, with margins, returns on equity and assets, cash, debt, liquidity ratios and growth.
+- Up to 5 years of annual financials and the last 5 quarters.
+- Analyst ratings, price targets, EPS estimates and rating changes from the last 6 months.
+- Earnings, with the next report date and the last 4 results against estimates.
+- Ownership, covering insider and institutional stakes, top holders, insider trades from the last 90 days and short interest.
+- Five peers from the same Yahoo industry, closest in market cap and listed on an exchange SMG trades, plus their median.
+- A list of things to watch, such as earnings inside a 5-day hold, losses, cash burn, heavy shorting, high debt, dilution, an auditor change or no analyst coverage.
+- The last 6 SEC filings and the last 30 days of headlines.
+- The model's buy and sell odds, and the 90% range when the stock is volume-flagged.
+
+Forward P/E and forward EPS only show when analysts cover the stock, because Yahoo fills them in for uncovered small caps with no stated source. For foreign stocks that report in another currency, like TSM in Taiwan dollars, ratios that would mix that currency with the dollar share price show as n/a.
 
 ## Buy and sell odds
 
