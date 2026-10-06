@@ -2,7 +2,7 @@
 
 Lists stocks trading at least 3x their 20-day average volume. It only keeps names the Stock Market Game (SMG) lets you buy. Price and yesterday's close both have to be over $3 and market cap over $25M. Notes, preferreds, warrants, units and closed-end funds get dropped.
 
-The stock list, price, market cap and today's volume come from Nasdaq's public screener. The 20-day averages come from yfinance and get cached in `data/` for the day. The first run takes about two minutes and later runs that day take a few seconds.
+The stock list, price, market cap and volume come from Nasdaq's public screener. The 20-day averages come from yfinance, cover the 20 sessions before the one being scanned, and get cached in `data/` for the day. The first run takes about two minutes and later runs that day take a few seconds.
 
 ## Setup
 
@@ -27,7 +27,7 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python volume_scanner.py 5    # 5x threshold
 ```
 
-While the market is open, today's volume only covers part of the day, so RVOL reads low. The numbers are most useful near the close.
+During market hours Nasdaq's screener still shows the previous full session, and the report header names the session it covers. An order you place that day fills at that day's close, one session after the flag, so the "next close" range is the range for your fill.
 
 SMG doesn't allow automated order entry, so this only finds stocks. Trades go in by hand.
 
@@ -70,3 +70,26 @@ Frozen ranges finished a hair under 90% and live ones stayed above it, so leave 
 .venv/bin/python price_range.py holdout   # 200-day holdout test
 .venv/bin/python test_price_range.py      # checks calibration on made-up data
 ```
+
+## Buy and sell odds
+
+`analyze.py` gives any stock a buy and a sell percentage. Buy is the chance the stock closes higher 5 trading days after your order fills, and sell is the chance it closes lower. Run before 4pm ET, it assumes you fill at that day's close. Run after, it assumes the next day's close.
+
+```
+.venv/bin/python analyze.py APT PTC AAPL
+.venv/bin/python analyze.py backtest   # rerun the calibration test
+.venv/bin/python test_analyze.py        # checks for look-ahead and a planted signal
+```
+
+The model is a logistic regression on 8 numbers from the stock's own daily bars. They are its return over 1, 5, 20 and 60 days, its 20-day volatility, today's volume against its 20-day average, where it closed inside the day's range, and its distance from the 52-week high. It trains on about 5 million stock-days of the same universe the scanner uses and refits once a week.
+
+The percentages are calibrated. When it says 52%, about 52 in 100 stocks like that went up. Expect small numbers, because the backtest found only a weak edge. Trained before Oct 2022, calibrated through Oct 2024 and tested on 1.37 million stock-days after that, it gave these results.
+
+| predicted buy | average prediction | went up | stock-days |
+|---|---|---|---|
+| under 48% | 46.9% | 46.4% | 15,086 |
+| 48% to 50% | 49.2% | 48.5% | 52,944 |
+| 50% to 52% | 51.3% | 49.9% | 281,959 |
+| over 52% | 53.0% | 51.5% | 1,017,346 |
+
+98% of predictions fell between 47.9% and 54.5%. The 10% of stocks it liked most each day went up 51.9% of the time and the 10% it liked least went up 49.0%, against 51.0% for everything. The top group came out at 45.5% in late 2024, 53.7% in 2025 and 51.5% in 2026, so the edge isn't steady from year to year. Predictions run 1 to 1.5 points high in the test, mostly because the overall share of stocks going up moves with the market and no single-stock number can see that coming. A reading near 50% means the model has nothing. Use the odds to break ties between picks and to size positions, and keep them out of the decision to trade at all.
