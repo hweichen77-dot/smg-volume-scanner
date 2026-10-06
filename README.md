@@ -29,15 +29,16 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python volume_scanner.py 5    # 5x threshold
 .venv/bin/python analyze.py APT AAPL     # full report on one or more stocks
 .venv/bin/python market.py               # odds for the big index funds
+.venv/bin/python market.py APT           # how one stock moves with its sector and other markets
 ```
 
-For shorter commands that work from any folder, add these to `~/.zshrc` and open a new terminal. Then `run3x`, `run5x`, `analyze APT` and `market` do the same as the lines above.
+For shorter commands that work from any folder, add these to `~/.zshrc` and open a new terminal. Then `run3x`, `run5x`, `analyze APT`, `market` and `market APT` do the same as the lines above.
 
 ```
 run3x() { (cd ~/smg-volume-scanner && .venv/bin/python volume_scanner.py 3) }
 run5x() { (cd ~/smg-volume-scanner && .venv/bin/python volume_scanner.py 5) }
 analyze() { (cd ~/smg-volume-scanner && .venv/bin/python analyze.py "$@") }
-market() { (cd ~/smg-volume-scanner && .venv/bin/python market.py) }
+market() { (cd ~/smg-volume-scanner && .venv/bin/python market.py "$@") }
 ```
 
 During market hours Nasdaq's screener still shows the previous full session, and the report header names the session it covers. An order you place that day fills at that day's close, one session after the flag, so the "next close" range is the range for your fill.
@@ -138,3 +139,9 @@ Single stocks are close to a coin flip over a week, but the whole market drifts 
 | 6 months | 75.9% | -12.0% to +21.2% |
 
 Each row also splits history into an older and a recent half, so you can see how steady a number is. SPY's 3-month odds were 67% before 2009 and 77% after. These rates come from 30 strong years for US stocks and aren't a guarantee. A fund that ends a window higher can still drop a long way in the middle of it. A filter that only buys when the fund trades above its 200-day average was tested and left out, because it raised the odds for SPY and QQQ but lowered them for IWM.
+
+### One stock in its market
+
+`market.py APT` puts a single stock in context. It compares the stock's return over 1 week to 1 year against SPY and its sector fund, using the SPDR fund that matches Yahoo's sector (XLI for industrials, XLK for tech and so on). It also reports how much of the stock's daily moves over the last year came from the market and its sector, and its beta to the S&P 500.
+
+It then lists how the stock has moved with small caps, long Treasury bonds, the US dollar, oil, gold, Bitcoin and VIX, each next to its sector fund and the S&P 500. Each market gets a correlation over 1 and 3 years, plus a second pair with the S&P 500's share stripped out of both sides, which shows whether that market matters to this stock on its own. The last column is that market's move over the past month. A link under about 0.10 either way is noise, and one that flips sign between the 1-year and 3-year columns isn't reliable. As a check, XOM shows a 0.90 link to the energy fund and about 0.6 to oil, while APT is 95% company-specific with no real tie to any of them.
