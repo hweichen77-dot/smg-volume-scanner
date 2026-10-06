@@ -2,6 +2,8 @@
 
 Lists stocks trading at least 3x their 20-day average volume. It only keeps names the Stock Market Game (SMG) lets you buy. Price and yesterday's close both have to be over $3 and market cap over $25M. Notes, preferreds, warrants, units and closed-end funds get dropped.
 
+Each flagged stock also gets a 90% price range for the next close and the close 5 trading days out. A separate tool, `analyze.py`, gives any stock calibrated odds of closing higher or lower a week after you buy.
+
 The stock list, price, market cap and volume come from Nasdaq's public screener. The 20-day averages come from yfinance, cover the 20 sessions before the one being scanned, and get cached in `data/` for the day. The first run takes about two minutes and later runs that day take a few seconds.
 
 ## Setup
@@ -25,6 +27,7 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 .venv/bin/python volume_scanner.py      # 3x threshold
 .venv/bin/python volume_scanner.py 5    # 5x threshold
+.venv/bin/python analyze.py APT AAPL     # buy and sell odds for any stock
 ```
 
 During market hours Nasdaq's screener still shows the previous full session, and the report header names the session it covers. An order you place that day fills at that day's close, one session after the flag, so the "next close" range is the range for your fill.
