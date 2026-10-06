@@ -28,14 +28,16 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python volume_scanner.py      # 3x threshold
 .venv/bin/python volume_scanner.py 5    # 5x threshold
 .venv/bin/python analyze.py APT AAPL     # full report on one or more stocks
+.venv/bin/python market.py               # odds for the big index funds
 ```
 
-For shorter commands that work from any folder, add these to `~/.zshrc` and open a new terminal. Then `run3x`, `run5x` and `analyze APT` do the same as the lines above.
+For shorter commands that work from any folder, add these to `~/.zshrc` and open a new terminal. Then `run3x`, `run5x`, `analyze APT` and `market` do the same as the lines above.
 
 ```
 run3x() { (cd ~/smg-volume-scanner && .venv/bin/python volume_scanner.py 3) }
 run5x() { (cd ~/smg-volume-scanner && .venv/bin/python volume_scanner.py 5) }
 analyze() { (cd ~/smg-volume-scanner && .venv/bin/python analyze.py "$@") }
+market() { (cd ~/smg-volume-scanner && .venv/bin/python market.py) }
 ```
 
 During market hours Nasdaq's screener still shows the previous full session, and the report header names the session it covers. An order you place that day fills at that day's close, one session after the flag, so the "next close" range is the range for your fill.
@@ -123,3 +125,16 @@ The percentages are calibrated. When it says 52%, about 52 in 100 stocks like th
 | over 52% | 53.0% | 51.5% | 1,017,346 |
 
 98% of predictions fell between 47.9% and 54.5%. The 10% of stocks it liked most each day went up 51.9% of the time and the 10% it liked least went up 49.0%, against 51.0% for everything. The top group came out at 45.5% in late 2024, 53.7% in 2025 and 51.5% in 2026, so the edge isn't steady from year to year. Predictions run 1 to 1.5 points high in the test, mostly because the overall share of stocks going up moves with the market and no single-stock number can see that coming. A reading near 50% means the model has nothing. Use the odds to break ties between picks and to size positions, and keep them out of the decision to trade at all.
+
+## Index fund odds
+
+Single stocks are close to a coin flip over a week, but the whole market drifts up over time. `market.py` shows how often SPY, QQQ, DIA and IWM ended higher over every past 1-week, 1-month, 3-month and 6-month window since each fund started, with dividends included. It also prints the median move and the range that held 90% of outcomes.
+
+| SPY since 1993 | ended higher | 90% of outcomes |
+|---|---|---|
+| 1 week | 58.7% | -3.6% to +3.7% |
+| 1 month | 65.4% | -6.5% to +6.9% |
+| 3 months | 72.1% | -10.2% to +12.6% |
+| 6 months | 75.9% | -12.0% to +21.2% |
+
+Each row also splits history into an older and a recent half, so you can see how steady a number is. SPY's 3-month odds were 67% before 2009 and 77% after. These rates come from 30 strong years for US stocks and aren't a guarantee. A fund that ends a window higher can still drop a long way in the middle of it. A filter that only buys when the fund trades above its 200-day average was tested and left out, because it raised the odds for SPY and QQQ but lowered them for IWM.
