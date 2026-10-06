@@ -75,14 +75,14 @@ def download_bars(symbols, period):
     return pd.concat(frames, axis=1)
 
 
-def volume_and_volatility(symbols, today):
+def volume_and_volatility(symbols, session):
     CACHE.mkdir(exist_ok=True)
-    path = CACHE / f"history_stats_{today}.parquet"
+    path = CACHE / f"history_stats_{session}.parquet"
     cached = pd.read_parquet(path) if path.exists() else pd.DataFrame(columns=["avg_volume", "ewma_var", "max_jump"])
     todo = [s for s in symbols if s not in cached.index]
     if todo:
         history = download_bars(todo, "6mo")
-        history = history[history.index.date < today]
+        history = history[history.index.date < session]
         log_returns = np.log(history["Close"]).diff()
         fresh = pd.DataFrame({
             "avg_volume": history["Volume"].tail(LOOKBACK_DAYS).mean(),
@@ -94,9 +94,18 @@ def volume_and_volatility(symbols, today):
     return cached.astype(float).reindex(symbols)
 
 
+def session_date(stocks, today):
+    reference = stocks.loc["AAPL", "volume"]
+    bars = yf.download("AAPL", period="10d", interval="1d", progress=False, auto_adjust=False, multi_level_index=False)
+    matches = bars.index[(bars["Volume"] - reference).abs() < 0.02 * reference]
+    return matches[-1].date() if len(matches) else today
+
+
 def scan(today):
-    stocks = passes_hard_rules(listed_stocks()).set_index("symbol")
-    stats = volume_and_volatility(list(stocks.index), today)
+    stocks = listed_stocks().set_index("symbol")
+    session = session_date(stocks, today)
+    stocks = passes_hard_rules(stocks.reset_index()).set_index("symbol")
+    stats = volume_and_volatility(list(stocks.index), session)
     stocks["avg_volume"] = stats["avg_volume"]
     today_return = np.log(stocks["price"] / stocks["prev_close"])
     stocks["vol"] = np.sqrt(EWMA_LAMBDA * stats["ewma_var"] + (1 - EWMA_LAMBDA) * today_return**2)
@@ -106,15 +115,17 @@ def scan(today):
     stocks = stocks[stocks["avg_volume"] > 0]
     stocks["rvol"] = stocks["volume"] / stocks["avg_volume"]
     stocks["suspect"] = (stocks["change_pct"].abs() > 50) | (stats["max_jump"] > np.log(1.5))
-    return stocks[stocks["rvol"] >= RVOL_THRESHOLD].sort_values("rvol", ascending=False)
+    return stocks[stocks["rvol"] >= RVOL_THRESHOLD].sort_values("rvol", ascending=False), session
 
 
-def print_report(hits, now, multipliers):
+def print_report(hits, session, now, multipliers):
     from price_range import TARGET, ranges
 
     print(f"Unusual volume scan, {now:%Y-%m-%d %H:%M} ET")
     print(f"Rules: price > ${MIN_PRICE:.0f}, market cap > ${MIN_MARKET_CAP / 1e6:.0f}M, volume >= {RVOL_THRESHOLD:.0f}x {LOOKBACK_DAYS}-day average")
-    if now.hour < 16:
+    if session < now.date():
+        print(f"Nasdaq's data covers the {session:%a %b %d} session. Today's trading isn't in it yet.")
+    elif now.hour < 16:
         print("Market still open. Today's volume is partial, so RVOL runs low until the close.")
     print()
     if hits.empty:
@@ -141,7 +152,7 @@ def main():
         global RVOL_THRESHOLD
         RVOL_THRESHOLD = float(sys.argv[1])
     from price_range import calibrate
-    print_report(scan(now.date()), now, calibrate(now.date()))
+    print_report(*scan(now.date()), now, calibrate(now.date()))
 
 
 if __name__ == "__main__":
