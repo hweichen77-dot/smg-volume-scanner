@@ -52,13 +52,13 @@ def stock_in_market(symbol):
     returns = np.log(close).diff().iloc[1:]
 
     print(f"{info.get('longName', symbol)} ({symbol})   {sector or 'sector unknown'} / {info.get('industry', 'n/a')}   ${close[symbol].iat[-1]:,.2f}")
-    heading = f"  {'':<22}" + "".join(f"{name:>10}" for name in PERIODS.values())
+    heading = f"  {'':<28}" + "".join(f"{name:>10}" for name in PERIODS.values())
     print("\nPerformance against its market\n" + heading)
     rows = [symbol, "SPY"] + ([fund] if fund else [])
     for col in rows:
-        print(f"  {names[col]:<22}" + "".join(f"{close[col].iat[-1] / close[col].iat[-1 - n] - 1:>+10.1%}" for n in PERIODS))
+        print(f"  {names[col]:<28}" + "".join(f"{close[col].iat[-1] / close[col].iat[-1 - n] - 1:>+10.1%}" for n in PERIODS))
     for col in rows[1:]:
-        print(f"  {'vs ' + names[col]:<22}" + "".join(f"{(close[symbol].iat[-1] / close[symbol].iat[-1 - n]) - (close[col].iat[-1] / close[col].iat[-1 - n]):>+10.1%}" for n in PERIODS))
+        print(f"  {'vs ' + names[col]:<28}" + "".join(f"{(close[symbol].iat[-1] / close[symbol].iat[-1 - n]) - (close[col].iat[-1] / close[col].iat[-1 - n]):>+10.1%}" for n in PERIODS))
 
     last_year = returns.tail(252)
     y, m = last_year[symbol], last_year["SPY"]
@@ -71,7 +71,7 @@ def stock_in_market(symbol):
     print(f"Beta to the S&P 500 is {beta(y, m):.2f}, so a 1% S&P day has meant about a {beta(y, m):.1f}% move in {symbol}.")
 
     print("\nHow other markets move with it")
-    print(f"  {'market':<22}{'link 1y':>9}{'link 3y':>9}{'beyond S&P 1y':>15}{'beyond S&P 3y':>15}{'its last month':>16}")
+    print(f"  {'market':<28}{'link 1y':>9}{'link 3y':>9}{'beyond S&P 1y':>15}{'beyond S&P 3y':>15}{'its last month':>16}")
     for col in [c for c in names if c not in (symbol, "SPY")] + ["SPY"]:
         if close[col].isna().all():
             continue
@@ -86,7 +86,7 @@ def stock_in_market(symbol):
             else:
                 cells.append(np.corrcoef(residual(window[symbol], window["SPY"]), residual(window[col], window["SPY"]))[0, 1])
         month = close[col].iat[-1] / close[col].iat[-22] - 1
-        print(f"  {names[col]:<22}" + f"{cells[0]:>+9.2f}{cells[1]:>+9.2f}" + "".join(f"{'':>15}" if np.isnan(c) else f"{c:>+15.2f}" for c in cells[2:]) + f"{month:>+16.1%}")
+        print(f"  {names[col]:<28}" + f"{cells[0]:>+9.2f}{cells[1]:>+9.2f}" + "".join(f"{'':>15}" if np.isnan(c) else f"{c:>+15.2f}" for c in cells[2:]) + f"{month:>+16.1%}")
     print("\nLinks run from -1 (moves opposite) through 0 (unrelated) to +1 (moves together). Beyond S&P strips out the shared market move, so it shows")
     print("whether that market matters to this stock on its own. Under about 0.10 either way is noise. A link that flips sign between 1y and 3y isn't reliable.\n")
 
