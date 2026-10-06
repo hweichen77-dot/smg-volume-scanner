@@ -4,8 +4,25 @@ Lists stocks trading at least 3x their 20-day average volume. It only keeps name
 
 The stock list, price, market cap and today's volume come from Nasdaq's public screener. The 20-day averages come from yfinance and get cached in `data/` for the day. The first run takes about two minutes and later runs that day take a few seconds.
 
+## Setup
+
+Needs Python 3.11 to 3.14. Python 3.15 is still a pre-release and pyarrow has no wheels for it yet, so the install tries to build pyarrow from source and fails. The repo pins 3.13 in `.python-version`.
+
+With [uv](https://docs.astral.sh/uv/), which picks up the pin and downloads 3.13 if you don't have it:
+
 ```
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+Without uv, call a specific interpreter instead of plain `python3`:
+
+```
+python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
+```
+
+## Usage
+
+```
 .venv/bin/python volume_scanner.py      # 3x threshold
 .venv/bin/python volume_scanner.py 5    # 5x threshold
 ```
